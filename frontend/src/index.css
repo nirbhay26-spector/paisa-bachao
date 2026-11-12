@@ -1,0 +1,237 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* 1. Mango Pop (Default, Light) */
+  :root, [data-theme="mango_pop"] {
+    --color-bg: #FFF4D6;
+    --color-surface: #FFFFFF;
+    --color-primary: #FF5C8A;
+    --color-accent: #7C5CFF;
+    --color-highlight: #C6F432;
+    --color-text: #1B1B2F;
+    --color-text-muted: #5C5B72;
+    --color-expense: #FF4D4D;
+    --color-income: #19B37A;
+    --color-border: #1B1B2F;
+  }
+
+  /* 2. Lo-fi Lavender */
+  [data-theme="lofi_lavender"] {
+    --color-bg: #EDE7FF;
+    --color-surface: #FFFFFF;
+    --color-primary: #6C4CF1;
+    --color-accent: #FF9ECD;
+    --color-highlight: #FFE066;
+    --color-text: #221A44;
+    --color-text-muted: #645C86;
+    --color-expense: #FF4D6D;
+    --color-income: #20BF6B;
+    --color-border: #221A44;
+  }
+
+  /* 3. Midnight Arcade (Dark) */
+  [data-theme="midnight_arcade"] {
+    --color-bg: #0E0B1F;
+    --color-surface: #1A1536;
+    --color-primary: #00E5C3;
+    --color-accent: #FF4FA3;
+    --color-highlight: #FFD23F;
+    --color-text: #F3F0FF;
+    --color-text-muted: #A39DBE;
+    --color-expense: #FF5376;
+    --color-income: #00E5C3;
+    --color-border: #F3F0FF;
+  }
+
+  /* 4. Matcha Chill */
+  [data-theme="matcha_chill"] {
+    --color-bg: #E6F4E1;
+    --color-surface: #FFFFFF;
+    --color-primary: #2F8F5B;
+    --color-accent: #FF8A4C;
+    --color-highlight: #FFD84D;
+    --color-text: #16261C;
+    --color-text-muted: #58685E;
+    --color-expense: #E74C3C;
+    --color-income: #2F8F5B;
+    --color-border: #16261C;
+  }
+
+  /* 5. Sunset Street */
+  [data-theme="sunset_street"] {
+    --color-bg: #FFE3D3;
+    --color-surface: #FFFFFF;
+    --color-primary: #FF6B35;
+    --color-accent: #3A86FF;
+    --color-highlight: #FFC8DD;
+    --color-text: #2B1B17;
+    --color-text-muted: #6F5E59;
+    --color-expense: #E63946;
+    --color-income: #2A9D8F;
+    --color-border: #2B1B17;
+  }
+
+  /* 6. Cherry Soda */
+  [data-theme="cherry_soda"] {
+    --color-bg: #FFE9EC;
+    --color-surface: #FFFFFF;
+    --color-primary: #E5174D;
+    --color-accent: #8ECAE6;
+    --color-highlight: #FFB703;
+    --color-text: #2A1015;
+    --color-text-muted: #6B4C52;
+    --color-expense: #E5174D;
+    --color-income: #06D6A0;
+    --color-border: #2A1015;
+  }
+
+  /* 7. Citrus Punch */
+  [data-theme="citrus_punch"] {
+    --color-bg: #FFF7E0;
+    --color-surface: #FFFFFF;
+    --color-primary: #FF7A00;
+    --color-accent: #00B8A9;
+    --color-highlight: #F9ED69;
+    --color-text: #2B2111;
+    --color-text-muted: #6C5F4D;
+    --color-expense: #D90429;
+    --color-income: #00B8A9;
+    --color-border: #2B2111;
+  }
+
+  /* 8. Aurora Night (Dark) */
+  [data-theme="aurora_night"] {
+    --color-bg: #08130F;
+    --color-surface: #12241E;
+    --color-primary: #5CFFB1;
+    --color-accent: #FF6BD6;
+    --color-highlight: #FFE45E;
+    --color-text: #EAFBF3;
+    --color-text-muted: #95BDB0;
+    --color-expense: #FF5A79;
+    --color-income: #5CFFB1;
+    --color-border: #5CFFB1;
+  }
+
+  * {
+    -webkit-tap-highlight-color: transparent;
+    transition: background-color 0.25s ease, border-color 0.25s ease, color 0.25s ease;
+  }
+
+  body {
+    background-color: var(--color-bg);
+    color: var(--color-text);
+    font-family: 'DM Sans', sans-serif;
+    font-variant-numeric: tabular-nums;
+    min-height: 100dvh;
+  }
+
+  h1, h2, h3, h4, .font-heading {
+    font-family: 'Space Grotesk', sans-serif;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  /* Chunky Neo-brutalist Card */
+  .card-brutal {
+    background-color: var(--color-surface);
+    border: 2px solid var(--color-border);
+    border-radius: 22px;
+    box-shadow: 4px 4px 0px var(--color-border);
+    padding: 1rem;
+  }
+
+  /* Interactive button with push-down feel */
+  .btn-brutal {
+    background-color: var(--color-primary);
+    color: #FFFFFF;
+    border: 2px solid var(--color-border);
+    border-radius: 16px;
+    box-shadow: 3px 3px 0px var(--color-border);
+    font-weight: 700;
+    padding: 0.75rem 1.25rem;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    cursor: pointer;
+  }
+  .btn-brutal:active {
+    transform: translate(2px, 2px);
+    box-shadow: 1px 1px 0px var(--color-border);
+  }
+
+  .btn-brutal-secondary {
+    background-color: var(--color-surface);
+    color: var(--color-text);
+    border: 2px solid var(--color-border);
+    border-radius: 16px;
+    box-shadow: 3px 3px 0px var(--color-border);
+    font-weight: 700;
+    padding: 0.75rem 1.25rem;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    cursor: pointer;
+  }
+  .btn-brutal-secondary:active {
+    transform: translate(2px, 2px);
+    box-shadow: 1px 1px 0px var(--color-border);
+  }
+
+  /* Sticker Icon */
+  .sticker-icon {
+    border: 2px solid var(--color-border);
+    border-radius: 16px;
+    box-shadow: 2px 2px 0px var(--color-border);
+    transition: transform 0.15s ease;
+  }
+  .sticker-icon:hover {
+    transform: rotate(-3deg) scale(1.05);
+  }
+
+  /* Input fields */
+  .input-brutal {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    border-radius: 16px;
+    border: 2px solid var(--color-border);
+    background-color: var(--color-surface);
+    color: var(--color-text);
+    box-shadow: 3px 3px 0px var(--color-border);
+    outline: none;
+    min-height: 44px;
+    font-weight: 600;
+  }
+  .input-brutal:focus {
+    box-shadow: 4px 4px 0px var(--color-primary);
+    border-color: var(--color-primary);
+  }
+
+  /* Bottom sheet */
+  .sheet-brutal {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background-color: var(--color-surface);
+    border-top: 3px solid var(--color-border);
+    border-radius: 28px 28px 0 0;
+    box-shadow: 0 -8px 0px rgba(0,0,0,0.1);
+    z-index: 50;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+}
