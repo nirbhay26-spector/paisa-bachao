@@ -37,8 +37,10 @@ function saveDb() {
 // Auto-save periodically
 let saveTimer = null;
 function startAutoSave(intervalMs = 5000) {
+  if (dbPath === ':memory:') return;
   if (saveTimer) clearInterval(saveTimer);
   saveTimer = setInterval(saveDb, intervalMs);
+  if (saveTimer && saveTimer.unref) saveTimer.unref();
 }
 
 function getWrapper() {

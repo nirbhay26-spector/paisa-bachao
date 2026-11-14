@@ -1,4 +1,4 @@
-const { test, describe, before } = require('node:test');
+const { test, describe, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
@@ -20,6 +20,10 @@ describe('Auth & Profile Operations Test Suite', async () => {
     } catch (e) {}
 
     authRouter = createAuthRouter(db);
+  });
+
+  after(() => {
+    if (db) db.close();
   });
 
   // Direct router dispatch helper without TCP socket
