@@ -68,8 +68,38 @@ export function AuthProvider({ children }) {
     return res.data;
   }, []);
 
+  const loginDemo = useCallback(async () => {
+    try {
+      const res = await api.post('/auth/demo');
+      localStorage.setItem('pb_token', res.data.token);
+      localStorage.setItem('pb_user', JSON.stringify(res.data.user));
+      setToken(res.data.token);
+      setUser(res.data.user);
+      return res.data.user;
+    } catch {
+      const fallbackUser = {
+        id: 'student-demo-local',
+        name: 'Student Explorer',
+        email: 'student.demo@paisabachao.app',
+        monthly_income: 3500,
+        income_frequency: 'monthly',
+        income_arrival_date: '1',
+        savings_goal: 500,
+        theme: 'mango_pop',
+        onboarding_done: 1,
+        avatar: 'fox'
+      };
+      const fallbackToken = 'pb_demo_session_token';
+      localStorage.setItem('pb_token', fallbackToken);
+      localStorage.setItem('pb_user', JSON.stringify(fallbackUser));
+      setToken(fallbackToken);
+      setUser(fallbackUser);
+      return fallbackUser;
+    }
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, register, logout, updateProfile, isAuthenticated: !!token }}>
+    <AuthContext.Provider value={{ user, token, loading, login, register, loginDemo, logout, updateProfile, isAuthenticated: !!token }}>
       {children}
     </AuthContext.Provider>
   );

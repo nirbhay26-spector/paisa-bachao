@@ -57,10 +57,10 @@ export default function HomePage() {
     try {
       setLoading(true);
       const [sumRes, expRes, freqRes, checkRes, subRes, saveRes, budRes] = await Promise.all([
-        api.get('/expenses/summary'),
-        api.get('/expenses?limit=3'),
-        api.get('/expenses/frequent'),
-        api.get('/questions/weekly-checkin'),
+        api.get('/expenses/summary').catch(() => ({ data: { month: 0, today: 0, safe_per_day: 0, days_left: 1, money_left: 0 } })),
+        api.get('/expenses?limit=3').catch(() => ({ data: { expenses: [] } })),
+        api.get('/expenses/frequent').catch(() => ({ data: [] })),
+        api.get('/questions/weekly-checkin').catch(() => ({ data: null })),
         api.get('/settings/subscriptions').catch(() => ({ data: { upcoming_7_days: [] } })),
         api.get('/savings').catch(() => ({ data: [] })),
         api.get('/budgets').catch(() => ({ data: [] }))

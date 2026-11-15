@@ -7,13 +7,14 @@ import { SUPPORTED_LANGUAGES } from '../i18n';
 
 export default function LoginPage() {
   const { t, i18n } = useTranslation();
-  const { login } = useAuth();
+  const { login, loginDemo } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [demoLoading, setDemoLoading] = useState(false);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -27,6 +28,19 @@ export default function LoginPage() {
       setError(err.response?.data?.error || t('auth.error_invalid') || 'Invalid email or password');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleDemo() {
+    setDemoLoading(true);
+    try {
+      await loginDemo();
+      navigate('/');
+    } catch (err) {
+      console.error('Demo login error:', err);
+      navigate('/');
+    } finally {
+      setDemoLoading(false);
     }
   }
 
@@ -117,10 +131,25 @@ export default function LoginPage() {
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || demoLoading}
             className="btn-brutal w-full py-3.5 text-base font-heading font-black shadow-sticker-lg"
           >
             {loading ? t('common.loading') : t('auth.login_btn')}
+          </button>
+
+          <div className="relative flex py-1 items-center">
+            <div className="flex-grow border-t border-border/50"></div>
+            <span className="flex-shrink mx-3 text-[10px] font-heading font-bold text-text-muted uppercase">or</span>
+            <div className="flex-grow border-t border-border/50"></div>
+          </div>
+
+          <button
+            type="button"
+            disabled={loading || demoLoading}
+            onClick={handleDemo}
+            className="btn-brutal-secondary w-full py-2.5 text-xs font-heading font-black border-2 border-border bg-highlight text-text shadow-sticker flex items-center justify-center gap-2 hover:bg-highlight/80 transition-all"
+          >
+            <span>⚡ {demoLoading ? 'Launching...' : 'Explore Interactive Dashboard (Guest Mode)'}</span>
           </button>
         </form>
 

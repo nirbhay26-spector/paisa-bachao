@@ -10,12 +10,17 @@ async function initDb(filepath) {
   dbPath = filepath;
   const SQL = await initSqlJs();
   if (filepath !== ':memory:') {
-    const dir = path.dirname(filepath);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    if (fs.existsSync(filepath)) {
-      const buffer = fs.readFileSync(filepath);
-      db = new SQL.Database(buffer);
-    } else {
+    try {
+      const dir = path.dirname(filepath);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      if (fs.existsSync(filepath)) {
+        const buffer = fs.readFileSync(filepath);
+        db = new SQL.Database(buffer);
+      } else {
+        db = new SQL.Database();
+      }
+    } catch (e) {
+      console.warn('Filesystem access failed, falling back to memory database:', e.message);
       db = new SQL.Database();
     }
   } else {
@@ -28,9 +33,15 @@ async function initDb(filepath) {
 
 function saveDb() {
   if (db && dbPath && dbPath !== ':memory:') {
-    const data = db.export();
-    const buffer = Buffer.from(data);
-    fs.writeFileSync(dbPath, buffer);
+    try {
+      const data = db.export();
+      const buffer = Buffer.from(data);
+      const dir = path.dirname(dbPath);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(dbPath, buffer);
+    } catch (err) {
+      // Non-fatal warning if persisting to disk is unavailable (e.g. read-only serverless)
+    }
   }
 }
 

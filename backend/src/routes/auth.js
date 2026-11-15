@@ -80,6 +80,38 @@ function createAuthRouter(db) {
     }
   });
 
+  router.post('/demo', async (req, res) => {
+    try {
+      const demoEmail = 'student.demo@paisabachao.app';
+      let user = db.prepare('SELECT * FROM users WHERE email = ?').get(demoEmail);
+      const now = new Date().toISOString();
+      if (!user) {
+        const userId = crypto.randomUUID();
+        const hash = await bcrypt.hash('demopass123', 10);
+        db.prepare(`
+          INSERT INTO users (id, email, password_hash, name, monthly_income, income_frequency, income_arrival_date, savings_goal, currency, language, theme, onboarding_done, sample_data_enabled, created_at, updated_at)
+          VALUES (?, ?, ?, 'Student Explorer', 3500, 'monthly', '1', 500, 'INR', 'en', 'mango_pop', 1, 0, ?, ?)
+        `).run(userId, demoEmail, hash, now, now);
+
+        db.prepare(`INSERT INTO accounts (id, user_id, name, type, balance, is_default, created_at) VALUES (?, ?, 'UPI / Bank', 'upi', 1500, 1, ?)`).run(crypto.randomUUID(), userId, now);
+        db.prepare(`INSERT INTO accounts (id, user_id, name, type, balance, is_default, created_at) VALUES (?, ?, 'Cash Wallet', 'cash', 500, 0, ?)`).run(crypto.randomUUID(), userId, now);
+
+        const insertCat = db.prepare(`INSERT INTO categories (id, user_id, name, icon, color, is_custom, sort_order) VALUES (?, ?, ?, ?, ?, 0, ?)`);
+        for (const cat of DEFAULT_CATEGORIES) {
+          insertCat.run(`${cat.id}_${userId.slice(0, 8)}`, userId, cat.name, cat.icon, cat.color, cat.sort);
+        }
+        user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+      }
+      delete user.password_hash;
+      delete user.pin_hash;
+      const token = generateToken(user.id);
+      res.json({ token, user, message: 'Welcome to Student Demo Mode!' });
+    } catch (err) {
+      console.error('Demo auth error:', err);
+      res.status(500).json({ error: 'Failed to initialize demo mode' });
+    }
+  });
+
   router.post('/login', async (req, res) => {
     try {
       const { email, password } = req.body;

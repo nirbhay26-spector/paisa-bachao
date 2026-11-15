@@ -7,7 +7,7 @@ import { SUPPORTED_LANGUAGES } from '../i18n';
 
 export default function RegisterPage() {
   const { t, i18n } = useTranslation();
-  const { register } = useAuth();
+  const { register, loginDemo } = useAuth();
   const navigate = useNavigate();
 
   const [name, setName] = useState('');
@@ -16,6 +16,7 @@ export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [demoLoading, setDemoLoading] = useState(false);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -34,6 +35,19 @@ export default function RegisterPage() {
       setError(err.response?.data?.error || err.message || 'Registration failed');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleDemo() {
+    setDemoLoading(true);
+    try {
+      await loginDemo();
+      navigate('/');
+    } catch (err) {
+      console.error('Demo login error:', err);
+      navigate('/');
+    } finally {
+      setDemoLoading(false);
     }
   }
 
@@ -70,8 +84,17 @@ export default function RegisterPage() {
 
         <form onSubmit={handleSubmit} className="card-brutal p-5 bg-surface space-y-4 shadow-sticker-lg">
           {error && (
-            <div className="text-expense text-xs font-bold text-center bg-expense/10 border border-expense p-2.5 rounded-xl">
-              {error}
+            <div className="space-y-2">
+              <div className="text-expense text-xs font-bold text-center bg-expense/10 border border-expense p-2.5 rounded-xl">
+                {error}
+              </div>
+              <button
+                type="button"
+                onClick={handleDemo}
+                className="w-full text-center text-xs font-heading font-black text-primary underline hover:opacity-80 py-1"
+              >
+                Or enter interactive dashboard directly as Guest →
+              </button>
             </div>
           )}
 
@@ -131,10 +154,25 @@ export default function RegisterPage() {
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || demoLoading}
             className="btn-brutal w-full py-3.5 text-base font-heading font-black shadow-sticker-lg bg-primary text-white"
           >
             {loading ? t('common.loading') : t('auth.register_btn')}
+          </button>
+
+          <div className="relative flex py-1 items-center">
+            <div className="flex-grow border-t border-border/50"></div>
+            <span className="flex-shrink mx-3 text-[10px] font-heading font-bold text-text-muted uppercase">or</span>
+            <div className="flex-grow border-t border-border/50"></div>
+          </div>
+
+          <button
+            type="button"
+            disabled={loading || demoLoading}
+            onClick={handleDemo}
+            className="btn-brutal-secondary w-full py-2.5 text-xs font-heading font-black border-2 border-border bg-highlight text-text shadow-sticker flex items-center justify-center gap-2 hover:bg-highlight/80 transition-all"
+          >
+            <span>⚡ {demoLoading ? 'Launching...' : 'Explore Interactive Dashboard (Guest Mode)'}</span>
           </button>
         </form>
 
