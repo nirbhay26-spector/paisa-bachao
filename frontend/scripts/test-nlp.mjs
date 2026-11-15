@@ -44,3 +44,4 @@ assert.strictEqual(t5.split_info.per_person, 400);
 console.log('  ✔ 5. "1200 electricity split with 3 people" -> amount: 1200, 3 people, ₹400/head');
 
 console.log('🎉 All 5 natural-language transaction tests passed!\n');
+
