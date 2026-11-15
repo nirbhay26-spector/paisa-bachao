@@ -39,6 +39,11 @@ export default function OnboardingPage() {
     }
   }
 
+  function handleSkip() {
+    updateProfile({ onboarding_done: 1 }).catch(() => {});
+    navigate('/', { replace: true });
+  }
+
   return (
     <div className="min-h-screen bg-bg flex flex-col justify-between p-5 max-w-md mx-auto">
       <div>
@@ -273,10 +278,10 @@ export default function OnboardingPage() {
 
         <button
           type="button"
-          onClick={() => navigate('/', { replace: true })}
+          onClick={handleSkip}
           className="w-full text-center text-xs font-heading font-extrabold text-text-muted hover:text-text underline pt-1"
         >
-          Skip setup for now & go to dashboard →
+          Skip setup for now & go straight to dashboard →
         </button>
       </div>
     </div>

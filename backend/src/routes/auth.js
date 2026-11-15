@@ -68,10 +68,10 @@ function createAuthRouter(db) {
         insertCat.run(`${cat.id}_${userId.slice(0, 8)}`, userId, cat.name, cat.icon, cat.color, cat.sort);
       }
 
-      const token = generateToken(userId);
       const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
       delete user.password_hash;
       delete user.pin_hash;
+      const token = generateToken(user);
 
       res.status(201).json({ token, user });
     } catch (err) {

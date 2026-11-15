@@ -111,7 +111,12 @@ function createExpensesRouter(db) {
   // GET /api/expenses/summary — Live summary numbers
   router.get('/summary', (req, res) => {
     try {
-      const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.userId);
+      const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.userId) || {
+        monthly_income: 3000,
+        income_frequency: 'monthly',
+        income_arrival_date: '1',
+        sample_data_enabled: 0
+      };
       const now = new Date();
       const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
       const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();

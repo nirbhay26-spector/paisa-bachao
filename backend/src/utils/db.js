@@ -8,7 +8,29 @@ let dbPath = '';
 
 async function initDb(filepath) {
   dbPath = filepath;
-  const SQL = await initSqlJs();
+
+  // Explicitly resolve and load wasm binary into memory to prevent Vercel / serverless path lookup failures
+  let wasmBinary = undefined;
+  try {
+    const wasmPath = path.join(path.dirname(require.resolve('sql.js')), 'sql-wasm.wasm');
+    if (fs.existsSync(wasmPath)) {
+      wasmBinary = fs.readFileSync(wasmPath);
+    }
+  } catch (err) {
+    console.warn('Could not read sql-wasm.wasm directly, using default loader:', err.message);
+  }
+
+  const SQL = await initSqlJs({
+    wasmBinary,
+    locateFile: (file) => {
+      try {
+        return path.join(path.dirname(require.resolve('sql.js')), file);
+      } catch {
+        return file;
+      }
+    }
+  });
+
   if (filepath !== ':memory:') {
     try {
       const dir = path.dirname(filepath);
@@ -26,6 +48,7 @@ async function initDb(filepath) {
   } else {
     db = new SQL.Database();
   }
+
   // Enable foreign keys
   db.run('PRAGMA foreign_keys = ON;');
   return getWrapper();
@@ -105,4 +128,3 @@ function getWrapper() {
 }
 
 module.exports = { initDb };
-

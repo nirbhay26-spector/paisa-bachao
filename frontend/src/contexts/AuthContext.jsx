@@ -62,10 +62,27 @@ export function AuthProvider({ children }) {
   }, []);
 
   const updateProfile = useCallback(async (data) => {
-    const res = await api.put('/auth/me', data);
-    setUser(res.data);
-    localStorage.setItem('pb_user', JSON.stringify(res.data));
-    return res.data;
+    try {
+      const res = await api.put('/auth/me', data);
+      const updatedUser = res.data?.user || res.data;
+      if (res.data?.token) {
+        localStorage.setItem('pb_token', res.data.token);
+        setToken(res.data.token);
+      }
+      setUser(updatedUser);
+      localStorage.setItem('pb_user', JSON.stringify(updatedUser));
+      return updatedUser;
+    } catch (err) {
+      console.warn('Network issue while updating profile, persisting locally:', err.message);
+      let savedUser = {};
+      try {
+        savedUser = JSON.parse(localStorage.getItem('pb_user') || '{}');
+      } catch {}
+      const mergedUser = { ...savedUser, ...data };
+      setUser(mergedUser);
+      localStorage.setItem('pb_user', JSON.stringify(mergedUser));
+      return mergedUser;
+    }
   }, []);
 
   const loginDemo = useCallback(async () => {

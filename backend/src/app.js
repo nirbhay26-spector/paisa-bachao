@@ -38,6 +38,7 @@ async function ensureDbInitialized() {
     const dbPath = process.env.DB_PATH || defaultDbPath;
 
     const db = await initDb(dbPath);
+    app.locals.db = db;
 
     // Apply migrations
     const migrationsDir = path.join(__dirname, '../migrations');
@@ -95,7 +96,26 @@ async function ensureDbInitialized() {
     apiRouter.get('/categories', (req, res) => {
       const { authMiddleware } = require('./middleware/auth');
       authMiddleware(req, res, () => {
-        const categories = db.prepare('SELECT * FROM categories WHERE user_id = ? ORDER BY sort_order').all(req.userId);
+        let categories = db.prepare('SELECT * FROM categories WHERE user_id = ? ORDER BY sort_order').all(req.userId);
+        if (!categories || categories.length === 0) {
+          const DEFAULT_CATEGORIES = [
+            { id: 'food', name: 'Food', icon: 'UtensilsCrossed', color: '#FF5C8A', sort: 0 },
+            { id: 'snacks', name: 'Chai & Snacks', icon: 'Coffee', color: '#E8A317', sort: 1 },
+            { id: 'travel', name: 'Travel & Metro', icon: 'Bus', color: '#7C5CFF', sort: 2 },
+            { id: 'shopping', name: 'Shopping', icon: 'ShoppingBag', color: '#C6F432', sort: 3 },
+            { id: 'education', name: 'College & Books', icon: 'GraduationCap', color: '#19B37A', sort: 4 },
+            { id: 'fun', name: 'Outings & Fun', icon: 'Gamepad2', color: '#FF4D4D', sort: 5 },
+            { id: 'bills', name: 'Recharge & Bills', icon: 'Smartphone', color: '#3A86FF', sort: 6 },
+            { id: 'subs', name: 'Subscriptions', icon: 'RefreshCw', color: '#9B59B6', sort: 7 },
+            { id: 'savings', name: 'Savings Goal', icon: 'PiggyBank', color: '#2F8F5B', sort: 8 },
+            { id: 'other', name: 'Other', icon: 'MoreHorizontal', color: '#6B746E', sort: 9 },
+          ];
+          const insertCat = db.prepare(`INSERT OR IGNORE INTO categories (id, user_id, name, icon, color, is_custom, sort_order) VALUES (?, ?, ?, ?, ?, 0, ?)`);
+          for (const cat of DEFAULT_CATEGORIES) {
+            insertCat.run(`${cat.id}_${req.userId.slice(0, 8)}`, req.userId, cat.name, cat.icon, cat.color, cat.sort);
+          }
+          categories = db.prepare('SELECT * FROM categories WHERE user_id = ? ORDER BY sort_order').all(req.userId);
+        }
         res.json(categories);
       });
     });
