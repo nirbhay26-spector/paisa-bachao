@@ -155,6 +155,23 @@ export default function SplitsPage() {
     }
   }
 
+  async function handleDeleteGroup(groupId) {
+    if (!window.confirm('Delete this split group and all its bills?')) return;
+    try {
+      await api.delete(`/splits/groups/${groupId}`);
+      const updated = groups.filter(g => g.id !== groupId);
+      setGroups(updated);
+      if (updated.length > 0) {
+        selectGroup(updated[0]);
+      } else {
+        setSelectedGroup(null);
+        setGroupDetails(null);
+      }
+    } catch {
+      alert('Failed to delete group');
+    }
+  }
+
   function handleShareWhatsApp() {
     if (!groupDetails) return;
     const { group, settlements } = groupDetails;
@@ -242,6 +259,13 @@ export default function SplitsPage() {
                   title="Share to WhatsApp"
                 >
                   <Share2 size={15} />
+                </button>
+                <button
+                  onClick={() => handleDeleteGroup(groupDetails.group.id)}
+                  className="w-8 h-8 rounded-xl border border-border bg-bg flex items-center justify-center text-text-muted hover:text-expense"
+                  title="Delete Group"
+                >
+                  <Trash2 size={15} />
                 </button>
                 <button
                   onClick={() => setShowAddExpenseModal(true)}

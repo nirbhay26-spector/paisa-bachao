@@ -1,6 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const { authMiddleware } = require('../middleware/auth');
+const { validateSplitGroup, validateGroupExpense } = require('../middleware/validate');
 
 function createSplitsRouter(db) {
   const router = express.Router();
@@ -70,6 +71,7 @@ function createSplitsRouter(db) {
   // DELETE /api/splits/:id
   router.delete('/:id', (req, res) => {
     const result = db.prepare('DELETE FROM splits WHERE id = ? AND user_id = ?').run(req.params.id, req.userId);
+    if (result.changes === 0) return res.status(404).json({ error: 'Split not found' });
     res.json({ message: 'Deleted' });
   });
 
@@ -100,10 +102,9 @@ function createSplitsRouter(db) {
   });
 
   // POST /api/splits/groups — Create group with initial members
-  router.post('/groups', (req, res) => {
+  router.post('/groups', validateSplitGroup, (req, res) => {
     try {
       const { name, emoji, members } = req.body;
-      if (!name) return res.status(400).json({ error: 'Group name is required' });
 
       const groupId = crypto.randomUUID();
       const now = new Date().toISOString();
@@ -138,14 +139,13 @@ function createSplitsRouter(db) {
   });
 
   // POST /api/splits/groups/:groupId/expenses — Add group expense with split shares
-  router.post('/groups/:groupId/expenses', (req, res) => {
+  router.post('/groups/:groupId/expenses', validateGroupExpense, (req, res) => {
     try {
       const { groupId } = req.params;
-      const { payer_name, amount, description, split_type, shares } = req.body;
+      const group = db.prepare('SELECT id FROM split_groups WHERE id = ? AND user_id = ?').get(groupId, req.userId);
+      if (!group) return res.status(404).json({ error: 'Group not found' });
 
-      if (!payer_name || !amount || !description || !shares || !shares.length) {
-        return res.status(400).json({ error: 'Payer, amount, description, and shares are required' });
-      }
+      const { payer_name, amount, description, split_type, shares } = req.body;
 
       const expenseId = crypto.randomUUID();
       const now = new Date().toISOString();
@@ -191,6 +191,23 @@ function createSplitsRouter(db) {
     } catch (err) {
       console.error('Group expense error:', err);
       res.status(500).json({ error: 'Failed to record expense' });
+    }
+  });
+
+  // DELETE /api/splits/groups/:groupId — Delete entire group and associated expenses/members
+  router.delete('/groups/:groupId', (req, res) => {
+    try {
+      const group = db.prepare('SELECT id FROM split_groups WHERE id = ? AND user_id = ?').get(req.params.groupId, req.userId);
+      if (!group) return res.status(404).json({ error: 'Group not found' });
+
+      db.prepare('DELETE FROM group_expense_shares WHERE expense_id IN (SELECT id FROM group_expenses WHERE group_id = ?)').run(req.params.groupId);
+      db.prepare('DELETE FROM group_expenses WHERE group_id = ?').run(req.params.groupId);
+      db.prepare('DELETE FROM group_members WHERE group_id = ?').run(req.params.groupId);
+      db.prepare('DELETE FROM split_groups WHERE id = ? AND user_id = ?').run(req.params.groupId, req.userId);
+      res.json({ message: 'Group deleted successfully' });
+    } catch (err) {
+      console.error('Delete group error:', err);
+      res.status(500).json({ error: 'Failed to delete group' });
     }
   });
 
@@ -270,6 +287,14 @@ function createSplitsRouter(db) {
   // PUT /api/splits/shares/:shareId/settle
   router.put('/shares/:shareId/settle', (req, res) => {
     try {
+      const share = db.prepare(`
+        SELECT ges.id 
+        FROM group_expense_shares ges
+        JOIN group_expenses ge ON ges.expense_id = ge.id
+        WHERE ges.id = ? AND ge.user_id = ?
+      `).get(req.params.shareId, req.userId);
+      if (!share) return res.status(404).json({ error: 'Share not found' });
+
       const now = new Date().toISOString();
       db.prepare('UPDATE group_expense_shares SET is_settled = 1, settled_at = ? WHERE id = ?').run(now, req.params.shareId);
       res.json({ message: 'Share marked as settled' });

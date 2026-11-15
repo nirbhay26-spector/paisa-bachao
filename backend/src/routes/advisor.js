@@ -1,10 +1,95 @@
 const express = require('express');
 const { authMiddleware } = require('../middleware/auth');
-const { runInsightsEngine } = require('../services/insightsEngine');
+const { runInsightsEngine, computeMoneyPulseScore } = require('../services/insightsEngine');
 
 function createAdvisorRouter(db) {
   const router = express.Router();
   router.use(authMiddleware);
+
+  // GET /api/advisor/pulse — Deterministic Money Pulse wellness score (0-100)
+  router.get('/pulse', (req, res) => {
+    try {
+      const pulse = computeMoneyPulseScore(db, req.userId);
+      res.json(pulse);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to calculate Money Pulse' });
+    }
+  });
+
+  // POST /api/advisor/affordability-simulator — "Can I afford this?"
+  router.post('/affordability-simulator', (req, res) => {
+    try {
+      const { amount, name } = req.body;
+      const numAmount = parseFloat(amount);
+      if (!numAmount || numAmount <= 0) {
+        return res.status(400).json({ error: 'Please enter a valid purchase amount' });
+      }
+
+      const pulse = computeMoneyPulseScore(db, req.userId);
+      const moneyLeft = pulse.moneyLeft;
+      const daysUntilNext = pulse.daysUntilNext || 1;
+      const currentSafePerDay = pulse.safePerDay;
+
+      // Check upcoming subscriptions in next 14 days
+      const in14Days = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const upcomingSubs = db.prepare(`
+        SELECT name, amount, next_billing_date 
+        FROM subscriptions 
+        WHERE user_id = ? AND status = 'active'
+          AND next_billing_date >= ? AND next_billing_date <= ?
+      `).all(req.userId, todayStr, in14Days);
+
+      const upcomingBillsTotal = upcomingSubs.reduce((s, b) => s + b.amount, 0);
+      const moneyLeftAfter = moneyLeft - numAmount;
+      const newSafePerDay = Math.max(0, Math.round(moneyLeftAfter / daysUntilNext));
+
+      let verdict = 'Comfortable';
+      let badgeColor = 'bg-primary';
+      let advice = '';
+
+      if (moneyLeftAfter <= 0) {
+        verdict = 'Risky right now';
+        badgeColor = 'bg-expense';
+        advice = `This purchase exceeds your remaining allowance by ₹${Math.abs(Math.round(moneyLeftAfter))}. You would enter a deficit.`;
+      } else if (moneyLeftAfter < upcomingBillsTotal) {
+        verdict = 'Risky right now';
+        badgeColor = 'bg-expense';
+        advice = `You have ₹${Math.round(upcomingBillsTotal)} in upcoming bills due soon. Buying this leaves insufficient buffer for your bills.`;
+      } else if (newSafePerDay < 40) {
+        verdict = 'Possible but tight';
+        badgeColor = 'bg-accent';
+        advice = `You can afford it, but it drops your daily safe spend to just ₹${newSafePerDay}/day for the next ${daysUntilNext} days.`;
+      } else if (newSafePerDay < currentSafePerDay * 0.7) {
+        verdict = 'Possible but tight';
+        badgeColor = 'bg-accent';
+        advice = `Your daily safe spend will decrease from ₹${currentSafePerDay} to ₹${newSafePerDay}/day. Manageable with light spending.`;
+      } else {
+        verdict = 'Comfortable';
+        badgeColor = 'bg-primary';
+        advice = `Go for it! You'll still have ₹${Math.round(moneyLeftAfter)} left (about ₹${newSafePerDay}/day safe spend).`;
+      }
+
+      res.json({
+        verdict,
+        badgeColor,
+        advice,
+        amount: numAmount,
+        name: name || 'Purchase',
+        current_safe_to_spend: currentSafePerDay,
+        new_safe_to_spend: newSafePerDay,
+        money_left_before: moneyLeft,
+        money_left_after: moneyLeftAfter,
+        days_until_next: daysUntilNext,
+        upcoming_bills_total: upcomingBillsTotal,
+        upcoming_bills: upcomingSubs
+      });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Affordability calculation failed' });
+    }
+  });
 
   // GET /api/advisor/insights — Real calculated personal insights
   router.get('/insights', (req, res) => {

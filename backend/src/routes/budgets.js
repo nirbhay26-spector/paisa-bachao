@@ -75,6 +75,29 @@ function createBudgetsRouter(db) {
     }
   });
 
+  router.put('/:id', (req, res) => {
+    try {
+      const existing = db.prepare('SELECT * FROM budgets WHERE id = ? AND user_id = ?').get(req.params.id, req.userId);
+      if (!existing) return res.status(404).json({ error: 'Budget not found' });
+
+      const { category_id, amount, period } = req.body;
+      const amt = amount !== undefined ? parseFloat(amount) : existing.amount;
+      if (amt <= 0) return res.status(400).json({ error: 'Budget amount must be positive' });
+
+      db.prepare(`
+        UPDATE budgets SET
+          category_id = COALESCE(?, category_id),
+          amount = ?,
+          period = COALESCE(?, period)
+        WHERE id = ? AND user_id = ?
+      `).run(category_id !== undefined ? category_id : null, amt, period || null, req.params.id, req.userId);
+
+      res.json(db.prepare('SELECT * FROM budgets WHERE id = ?').get(req.params.id));
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to update budget' });
+    }
+  });
+
   router.delete('/:id', (req, res) => {
     const result = db.prepare('DELETE FROM budgets WHERE id = ? AND user_id = ?').run(req.params.id, req.userId);
     if (result.changes === 0) return res.status(404).json({ error: 'Budget not found' });

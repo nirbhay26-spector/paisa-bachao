@@ -1,6 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const { authMiddleware } = require('../middleware/auth');
+const { validateSubscription } = require('../middleware/validate');
 const { enableSampleData, clearSampleData } = require('../services/sampleData');
 
 function createSettingsRouter(db) {
@@ -61,16 +62,44 @@ function createSettingsRouter(db) {
   router.get('/subscriptions', (req, res) => {
     try {
       const subs = db.prepare('SELECT * FROM subscriptions WHERE user_id = ? ORDER BY next_billing_date ASC').all(req.userId);
-      res.json(subs);
+      const now = new Date();
+      const in7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const todayStr = now.toISOString().slice(0, 10);
+
+      const enriched = subs.map(s => {
+        let monthly_equivalent = s.amount;
+        if (s.billing_cycle === 'yearly') monthly_equivalent = Math.round(s.amount / 12);
+        else if (s.billing_cycle === 'quarterly') monthly_equivalent = Math.round(s.amount / 3);
+        else if (s.billing_cycle === 'weekly') monthly_equivalent = Math.round(s.amount * 4.33);
+
+        const annual_cost = Math.round(monthly_equivalent * 12);
+        const is_due_soon = s.status === 'active' && s.next_billing_date >= todayStr && s.next_billing_date <= in7Days;
+
+        return {
+          ...s,
+          monthly_equivalent,
+          annual_cost,
+          is_due_soon
+        };
+      });
+
+      const totalMonthlyCommitment = enriched
+        .filter(s => s.status === 'active')
+        .reduce((sum, s) => sum + s.monthly_equivalent, 0);
+
+      res.json({
+        subscriptions: enriched,
+        total_monthly_commitment: totalMonthlyCommitment,
+        upcoming_7_days: enriched.filter(s => s.is_due_soon)
+      });
     } catch (err) {
       res.status(500).json({ error: 'Failed to load subscriptions' });
     }
   });
 
-  router.post('/subscriptions', (req, res) => {
+  router.post('/subscriptions', validateSubscription, (req, res) => {
     try {
       const { name, amount, category_id, billing_cycle, next_billing_date, reminder_days } = req.body;
-      if (!name || !amount) return res.status(400).json({ error: 'Name and amount are required' });
 
       const id = crypto.randomUUID();
       const now = new Date().toISOString();
@@ -90,9 +119,45 @@ function createSettingsRouter(db) {
     }
   });
 
+  router.put('/subscriptions/:id', (req, res) => {
+    try {
+      const existing = db.prepare('SELECT * FROM subscriptions WHERE id = ? AND user_id = ?').get(req.params.id, req.userId);
+      if (!existing) return res.status(404).json({ error: 'Subscription not found' });
+
+      const { name, amount, category_id, billing_cycle, next_billing_date, reminder_days, status } = req.body;
+      db.prepare(`
+        UPDATE subscriptions SET
+          name = COALESCE(?, name),
+          amount = COALESCE(?, amount),
+          category_id = COALESCE(?, category_id),
+          billing_cycle = COALESCE(?, billing_cycle),
+          next_billing_date = COALESCE(?, next_billing_date),
+          reminder_days = COALESCE(?, reminder_days),
+          status = COALESCE(?, status)
+        WHERE id = ? AND user_id = ?
+      `).run(
+        name ? name.trim() : null,
+        amount !== undefined ? parseFloat(amount) : null,
+        category_id !== undefined ? category_id : null,
+        billing_cycle || null,
+        next_billing_date || null,
+        reminder_days !== undefined ? parseInt(reminder_days, 10) : null,
+        status || null,
+        req.params.id,
+        req.userId
+      );
+
+      const updated = db.prepare('SELECT * FROM subscriptions WHERE id = ?').get(req.params.id);
+      res.json(updated);
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to update subscription' });
+    }
+  });
+
   router.delete('/subscriptions/:id', (req, res) => {
     try {
-      db.prepare('DELETE FROM subscriptions WHERE id = ? AND user_id = ?').run(req.params.id, req.userId);
+      const result = db.prepare('DELETE FROM subscriptions WHERE id = ? AND user_id = ?').run(req.params.id, req.userId);
+      if (result.changes === 0) return res.status(404).json({ error: 'Subscription not found' });
       res.json({ message: 'Subscription removed' });
     } catch (err) {
       res.status(500).json({ error: 'Failed to delete subscription' });

@@ -3,10 +3,67 @@ const crypto = require('crypto');
 const { parse } = require('csv-parse/sync');
 const { parseBankSMS } = require('../utils/smsParser');
 const { authMiddleware } = require('../middleware/auth');
+const { suggestCategoryAndTag } = require('../../../shared/categories');
 
 function createImportRouter(db) {
   const router = express.Router();
   router.use(authMiddleware);
+
+  // POST /api/import/preview — Review table with category suggestions and duplicate warnings
+  router.post('/preview', (req, res) => {
+    try {
+      const { csv_text } = req.body;
+      if (!csv_text) return res.status(400).json({ error: 'CSV text is required' });
+
+      let records;
+      try {
+        records = parse(csv_text, { columns: true, skip_empty_lines: true, trim: true });
+      } catch {
+        return res.status(400).json({ error: 'Invalid CSV format' });
+      }
+
+      const previewRows = [];
+      for (const row of records) {
+        const amountStr = row['Amount'] || row['amount'] || row['Debit'] || row['debit'] || row['Transaction Amount'] || '';
+        const amount = parseFloat(amountStr.replace(/[,₹Rs.]/g, ''));
+        if (!amount || amount <= 0) continue;
+
+        const merchant = (row['Description'] || row['Narration'] || row['Particulars'] || row['description'] || 'Spend').trim().slice(0, 200);
+        const dateStr = (row['Date'] || row['date'] || row['Transaction Date'] || '').trim();
+        let date;
+        try {
+          date = dateStr ? new Date(dateStr).toISOString() : new Date().toISOString();
+        } catch {
+          date = new Date().toISOString();
+        }
+
+        const dateSlice = date.slice(0, 10);
+        const dup = db.prepare(`
+          SELECT id FROM transactions 
+          WHERE user_id = ? AND is_deleted = 0 
+            AND amount = ? 
+            AND (LOWER(merchant) = LOWER(?) OR date LIKE ?)
+          LIMIT 1
+        `).get(req.userId, amount, merchant, `${dateSlice}%`);
+
+        const intel = suggestCategoryAndTag(merchant);
+
+        previewRows.push({
+          amount,
+          merchant,
+          date: dateSlice,
+          category_id: intel.category,
+          tag: intel.tag,
+          is_duplicate: !!dup
+        });
+      }
+
+      res.json({ total: previewRows.length, rows: previewRows });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to generate preview' });
+    }
+  });
 
   // POST /api/import/csv
   router.post('/csv', (req, res) => {

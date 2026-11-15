@@ -1,6 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const { authMiddleware } = require('../middleware/auth');
+const { validateGoal } = require('../middleware/validate');
 
 function createSavingsRouter(db) {
   const router = express.Router();
@@ -12,14 +13,34 @@ function createSavingsRouter(db) {
       const enriched = goals.map((g) => {
         const percentage = g.target_amount > 0 ? Math.round((g.current_amount / g.target_amount) * 100) : 0;
         let weekly_suggestion = null;
-        if (g.deadline) {
-          const now = new Date();
+        let projected_days_left = null;
+        let pace_status = 'on_track'; // on_track, behind, completed
+
+        const now = new Date();
+        const remaining = Math.max(0, g.target_amount - g.current_amount);
+
+        if (g.is_completed || remaining === 0) {
+          pace_status = 'completed';
+        } else if (g.deadline) {
           const deadline = new Date(g.deadline);
-          const weeksLeft = Math.max(1, Math.ceil((deadline - now) / (7 * 24 * 60 * 60 * 1000)));
-          const remaining = Math.max(0, g.target_amount - g.current_amount);
+          const daysToDeadline = Math.max(1, Math.ceil((deadline - now) / (24 * 60 * 60 * 1000)));
+          const weeksLeft = Math.max(1, Math.ceil(daysToDeadline / 7));
           weekly_suggestion = Math.ceil(remaining / weeksLeft);
+
+          // Calculate historical savings pace (amount saved per day since goal creation)
+          const createdAt = new Date(g.created_at);
+          const daysSinceCreation = Math.max(1, Math.ceil((now - createdAt) / (24 * 60 * 60 * 1000)));
+          const dailyPace = g.current_amount / daysSinceCreation;
+
+          if (dailyPace > 0) {
+            projected_days_left = Math.ceil(remaining / dailyPace);
+            if (projected_days_left > daysToDeadline) {
+              pace_status = 'behind';
+            }
+          }
         }
-        return { ...g, percentage, weekly_suggestion };
+
+        return { ...g, percentage, weekly_suggestion, projected_days_left, pace_status };
       });
       res.json(enriched);
     } catch (err) {
@@ -27,12 +48,9 @@ function createSavingsRouter(db) {
     }
   });
 
-  router.post('/', (req, res) => {
+  router.post('/', validateGoal, (req, res) => {
     try {
       const { name, target_amount, deadline } = req.body;
-      if (!name || !target_amount || parseFloat(target_amount) <= 0) {
-        return res.status(400).json({ error: 'Name and positive target amount are required' });
-      }
       const id = crypto.randomUUID();
       const now = new Date().toISOString();
       db.prepare(`
@@ -43,6 +61,30 @@ function createSavingsRouter(db) {
       res.status(201).json(db.prepare('SELECT * FROM goals WHERE id = ?').get(id));
     } catch (err) {
       res.status(500).json({ error: 'Failed to create savings goal' });
+    }
+  });
+
+  router.put('/:id', (req, res) => {
+    try {
+      const existing = db.prepare('SELECT * FROM goals WHERE id = ? AND user_id = ?').get(req.params.id, req.userId);
+      if (!existing) return res.status(404).json({ error: 'Goal not found' });
+
+      const { name, target_amount, deadline } = req.body;
+      const newTarget = target_amount !== undefined ? parseFloat(target_amount) : existing.target_amount;
+      const isCompleted = existing.current_amount >= newTarget ? 1 : 0;
+
+      db.prepare(`
+        UPDATE goals SET
+          name = COALESCE(?, name),
+          target_amount = COALESCE(?, target_amount),
+          deadline = COALESCE(?, deadline),
+          is_completed = ?
+        WHERE id = ? AND user_id = ?
+      `).run(name ? name.trim() : null, newTarget, deadline !== undefined ? deadline : null, isCompleted, req.params.id, req.userId);
+
+      res.json(db.prepare('SELECT * FROM goals WHERE id = ?').get(req.params.id));
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to update goal' });
     }
   });
 

@@ -4,7 +4,9 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { authMiddleware } = require('../middleware/auth');
+const { validateExpense } = require('../middleware/validate');
 const { calculateDaysUntilNextIncome, computeSafeToSpend } = require('../services/insightsEngine');
+const { suggestCategoryAndTag } = require('../../../shared/categories');
 
 function createExpensesRouter(db) {
   const router = express.Router();
@@ -213,8 +215,46 @@ function createExpensesRouter(db) {
     }
   });
 
-  // POST /api/expenses — Fast FamPay entry
-  router.post('/', (req, res) => {
+  // GET /api/expenses/check-duplicate — Duplicate transaction pre-flight check
+  router.get('/check-duplicate', (req, res) => {
+    try {
+      const { amount, merchant, date } = req.query;
+      if (!amount || isNaN(parseFloat(amount))) {
+        return res.json({ is_duplicate: false });
+      }
+
+      const numAmount = parseFloat(amount);
+      const merchantTrimmed = (merchant || '').trim();
+      const dateStr = (date || new Date().toISOString()).slice(0, 10);
+
+      let query = `
+        SELECT id, amount, merchant, date, note
+        FROM transactions
+        WHERE user_id = ? AND is_deleted = 0
+          AND amount = ?
+          AND date LIKE ?
+      `;
+      const params = [req.userId, numAmount, `${dateStr}%`];
+
+      if (merchantTrimmed) {
+        query += ` AND LOWER(merchant) = LOWER(?)`;
+        params.push(merchantTrimmed);
+      }
+
+      const duplicate = db.prepare(`${query} ORDER BY created_at DESC LIMIT 1`).get(...params);
+
+      res.json({
+        is_duplicate: !!duplicate,
+        duplicate: duplicate || null
+      });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to check duplicate' });
+    }
+  });
+
+  // POST /api/expenses — Fast FamPay entry with intelligence
+  router.post('/', validateExpense, (req, res) => {
     try {
       let { amount, category_id, payment_method, date, note, merchant, tag, is_recurring, recurrence_rule } = req.body;
 
@@ -223,13 +263,35 @@ function createExpensesRouter(db) {
         return res.status(400).json({ error: 'Please enter a valid amount' });
       }
 
-      // Check user's own learned merchant rules
+      // Check user's own learned merchant rules first
       if (merchant && (!category_id || !tag)) {
         const rule = db.prepare('SELECT * FROM merchant_rules WHERE user_id = ? AND merchant_pattern = ?')
           .get(req.userId, merchant.toLowerCase().trim());
         if (rule) {
           if (!category_id && rule.category_id) category_id = rule.category_id;
           if (!tag && rule.tag) tag = rule.tag;
+        }
+      }
+
+      // If still missing, apply built-in Indian merchant intelligence
+      if (!category_id || !tag) {
+        const fallback = suggestCategoryAndTag((merchant || '') + ' ' + (note || ''));
+        if (!category_id && fallback.category !== 'other') category_id = fallback.category;
+        if (!tag) tag = fallback.tag;
+      }
+
+      // If merchant and category are both present, learn the rule
+      if (merchant && category_id) {
+        try {
+          db.prepare(`
+            INSERT INTO merchant_rules (id, user_id, merchant_pattern, category_id, tag)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, merchant_pattern) DO UPDATE SET
+              category_id = excluded.category_id,
+              tag = COALESCE(excluded.tag, merchant_rules.tag)
+          `).run(crypto.randomUUID(), req.userId, merchant.toLowerCase().trim(), category_id, tag || null);
+        } catch (e) {
+          // ignore conflict errors
         }
       }
 
@@ -258,7 +320,7 @@ function createExpensesRouter(db) {
     }
   });
 
-  // PUT /api/expenses/:id — Edit expense
+  // PUT /api/expenses/:id — Edit expense & learn corrections
   router.put('/:id', (req, res) => {
     try {
       const existing = db.prepare('SELECT * FROM transactions WHERE id = ? AND user_id = ? AND is_deleted = 0').get(req.params.id, req.userId);
@@ -279,6 +341,25 @@ function createExpensesRouter(db) {
           updated_at = ?
         WHERE id = ? AND user_id = ?
       `).run(amount, category_id, payment_method, date, note, merchant, tag, now, req.params.id, req.userId);
+
+      // Learn correction if merchant & category are provided
+      const finalMerchant = merchant || existing.merchant;
+      const finalCategory = category_id || existing.category_id;
+      const finalTag = tag || existing.tag;
+
+      if (finalMerchant && finalCategory) {
+        try {
+          db.prepare(`
+            INSERT INTO merchant_rules (id, user_id, merchant_pattern, category_id, tag)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, merchant_pattern) DO UPDATE SET
+              category_id = excluded.category_id,
+              tag = COALESCE(excluded.tag, merchant_rules.tag)
+          `).run(crypto.randomUUID(), req.userId, finalMerchant.toLowerCase().trim(), finalCategory, finalTag || null);
+        } catch (e) {
+          // ignore
+        }
+      }
 
       const updated = db.prepare('SELECT * FROM transactions WHERE id = ?').get(req.params.id);
       res.json(updated);

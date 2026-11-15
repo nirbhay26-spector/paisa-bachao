@@ -49,7 +49,8 @@ export default function HubPage() {
     try {
       // Fetch subscriptions
       const subRes = await api.get('/settings/subscriptions').catch(() => ({ data: [] }));
-      if (Array.isArray(subRes.data)) setSubs(subRes.data);
+      const subList = Array.isArray(subRes.data) ? subRes.data : (subRes.data?.subscriptions || []);
+      setSubs(subList);
 
       // Fetch latest insights for wrapped
       const insRes = await api.get('/advisor/weekly-summary').catch(() => ({ data: null }));

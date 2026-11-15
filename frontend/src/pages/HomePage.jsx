@@ -4,8 +4,9 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
 import MoneyMascot from '../components/common/MoneyMascot';
+import MoneyPulseScore from '../components/common/MoneyPulseScore';
+import PurchaseSimulatorModal from '../components/common/PurchaseSimulatorModal';
 import CampusHubModal from '../components/common/CampusHubModal';
-import MoneyPulseChart from '../components/common/MoneyPulseChart';
 import { formatCurrency, formatDate } from '../utils/format';
 import { getIcon } from '../utils/icons';
 import {
@@ -13,16 +14,16 @@ import {
   HelpCircle,
   Sparkles,
   Calendar,
-  Flame,
   ChevronRight,
   Receipt,
-  AlertCircle,
   Users,
   Wallet,
   Zap,
-  Check,
   Edit2,
-  Share2
+  TrendingUp,
+  Clock,
+  ShieldCheck,
+  AlertCircle
 } from 'lucide-react';
 
 export default function HomePage() {
@@ -33,6 +34,9 @@ export default function HomePage() {
   const [summary, setSummary] = useState(null);
   const [recentExpenses, setRecentExpenses] = useState([]);
   const [frequentChips, setFrequentChips] = useState([]);
+  const [upcomingSubs, setUpcomingSubs] = useState([]);
+  const [savingsGoals, setSavingsGoals] = useState([]);
+  const [budgets, setBudgets] = useState([]);
   const [latestCheckin, setLatestCheckin] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -41,10 +45,8 @@ export default function HomePage() {
   const [allowanceInput, setAllowanceInput] = useState('');
   const [savingAllowance, setSavingAllowance] = useState(false);
 
-  // Bill Splitter quick widget
-  const [showSplitter, setShowSplitter] = useState(false);
-  const [splitBillAmount, setSplitBillAmount] = useState('');
-  const [splitPeople, setSplitPeople] = useState('3');
+  // Simulator & Campus Hub modals
+  const [showSimulator, setShowSimulator] = useState(false);
   const [showCampusHub, setShowCampusHub] = useState(false);
 
   useEffect(() => {
@@ -54,16 +56,23 @@ export default function HomePage() {
   async function loadHomeData() {
     try {
       setLoading(true);
-      const [sumRes, expRes, freqRes, checkRes] = await Promise.all([
+      const [sumRes, expRes, freqRes, checkRes, subRes, saveRes, budRes] = await Promise.all([
         api.get('/expenses/summary'),
-        api.get('/expenses?limit=5'),
+        api.get('/expenses?limit=3'),
         api.get('/expenses/frequent'),
         api.get('/questions/weekly-checkin'),
+        api.get('/settings/subscriptions').catch(() => ({ data: { upcoming_7_days: [] } })),
+        api.get('/savings').catch(() => ({ data: [] })),
+        api.get('/budgets').catch(() => ({ data: [] }))
       ]);
+
       setSummary(sumRes.data);
       setRecentExpenses(expRes.data.expenses || []);
       setFrequentChips(freqRes.data || []);
       setLatestCheckin(checkRes.data);
+      setUpcomingSubs(subRes.data.upcoming_7_days || []);
+      setSavingsGoals(saveRes.data || []);
+      setBudgets(budRes.data || []);
     } catch (err) {
       console.error(err);
     } finally {
@@ -122,10 +131,25 @@ export default function HomePage() {
   const daysLeft = summary?.days_left || 1;
   const pctUsed = income > 0 ? Math.min(100, Math.round((spentMonth / income) * 100)) : 0;
 
-  // Split calculation
-  const totalBill = parseFloat(splitBillAmount) || 0;
-  const numPeople = parseInt(splitPeople) || 1;
-  const myShare = totalBill > 0 && numPeople > 0 ? Math.round(totalBill / numPeople) : 0;
+  // Safe to spend status badge
+  let paceStatus = 'Safe & on track';
+  let paceBadgeBg = 'bg-primary text-white';
+  if (safePerDay <= 0) {
+    paceStatus = 'Zero-spend mode';
+    paceBadgeBg = 'bg-expense text-white';
+  } else if (safePerDay < 50) {
+    paceStatus = 'Pacing tight';
+    paceBadgeBg = 'bg-accent text-white';
+  }
+
+  // Active goals aggregation
+  const totalGoalTarget = savingsGoals.reduce((s, g) => s + g.target_amount, 0);
+  const totalGoalSaved = savingsGoals.reduce((s, g) => s + g.current_amount, 0);
+  const goalSavedPct = totalGoalTarget > 0 ? Math.round((totalGoalSaved / totalGoalTarget) * 100) : 0;
+
+  // Budget health summary
+  const overBudgets = budgets.filter(b => b.alert_level === 'exceeded');
+  const warningBudgets = budgets.filter(b => b.alert_level === 'warning');
 
   return (
     <div className="max-w-lg mx-auto px-4 py-4 space-y-4 pb-24">
@@ -133,7 +157,7 @@ export default function HomePage() {
       <div className="flex items-center justify-between">
         <div>
           <span className="text-[11px] font-heading font-extrabold uppercase tracking-wider text-text-muted">
-            Pocket Money Tracker
+            Student Money OS
           </span>
           <h1 className="text-xl font-heading font-black text-text">
             Hey, {user?.name || 'Friend'}! 👋
@@ -147,9 +171,19 @@ export default function HomePage() {
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-accent text-white border-2 border-border shadow-sticker text-xs font-heading font-black animate-pulse"
             >
               <HelpCircle size={15} />
-              <span>{summary.pending_questions} Questions</span>
+              <span>{summary.pending_questions}</span>
             </Link>
           )}
+
+          <button
+            type="button"
+            onClick={() => setShowSimulator(true)}
+            className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-surface text-text border-2 border-border shadow-sticker-hover text-xs font-heading font-bold"
+            title="Can I afford this simulator"
+          >
+            <span>🤔</span>
+            <span className="hidden sm:inline">Can I Afford?</span>
+          </button>
         </div>
       </div>
 
@@ -169,7 +203,7 @@ export default function HomePage() {
           <div className="flex gap-2">
             <input
               type="number"
-              placeholder="e.g. 2500"
+              placeholder="e.g. 3500"
               value={allowanceInput}
               onChange={(e) => setAllowanceInput(e.target.value)}
               className="input-brutal text-sm py-2 px-3 flex-1 bg-surface font-bold"
@@ -184,9 +218,8 @@ export default function HomePage() {
             </button>
           </div>
 
-          {/* Quick preset chips */}
           <div className="flex flex-wrap gap-1.5 pt-0.5">
-            {['1000', '2000', '3500', '5000'].map((amt) => (
+            {['1500', '3000', '5000', '8000'].map((amt) => (
               <button
                 key={amt}
                 type="button"
@@ -200,41 +233,88 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* Mascot Card */}
-      <MoneyMascot
-        mood={summary?.mascot_mood || 'calm'}
-        line={summary?.mascot_line}
-      />
-
-      {/* Main Chunky Balance Ring Card */}
-      <div className="card-brutal p-5 bg-surface space-y-4">
-        <div className="flex items-start justify-between">
-          <div className="space-y-1">
-            <span className="text-[11px] uppercase font-heading font-black text-text-muted tracking-wider block">
-              Money Left This Cycle
+      {/* HERO: SAFE-TO-SPEND TODAY CARD */}
+      <div className="card-brutal p-5 bg-surface border-3 border-border shadow-sticker-lg space-y-4 relative overflow-hidden">
+        {/* Top Tag & Status Pill */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-heading font-black uppercase tracking-wider text-text-muted">
+              How much can I safely spend today?
             </span>
-            <div className="text-4xl font-heading font-black text-primary tracking-tight">
-              {formatCurrency(moneyLeft)}
+          </div>
+          <span className={`text-[10px] font-heading font-black px-2.5 py-0.5 rounded-full border border-border shadow-xs ${paceBadgeBg}`}>
+            {paceStatus}
+          </span>
+        </div>
+
+        {/* Hero Big Typography */}
+        <div className="flex items-baseline justify-between pt-1">
+          <div>
+            <div className="text-5xl font-heading font-black text-primary tracking-tight">
+              ₹{safePerDay}
+              <span className="text-lg font-bold text-text-muted tracking-normal ml-1">/day</span>
             </div>
-            <div className="inline-flex items-center gap-1.5 text-xs font-bold text-text bg-bg border-2 border-border px-2.5 py-1 rounded-xl shadow-sticker-hover mt-1">
-              <Calendar size={13} className="text-primary" />
-              <span>₹{safePerDay}/day safe to spend ({daysLeft} days left)</span>
-            </div>
+            <p className="text-xs font-bold text-text-muted mt-1">
+              Safe spending pace for the next {daysLeft} days
+            </p>
           </div>
 
           <div className="text-right">
-            <div className="w-16 h-16 rounded-full border-3 border-border flex items-center justify-center font-heading font-black text-sm bg-highlight shadow-sticker">
+            <div className="w-14 h-14 rounded-2xl border-2 border-border flex items-center justify-center font-heading font-black text-sm bg-highlight shadow-sticker">
               {income > 0 ? `${100 - pctUsed}%` : '100%'}
             </div>
-            <span className="text-[10px] uppercase font-heading font-extrabold text-text-muted block mt-1">
-              remaining
+            <span className="text-[9px] uppercase font-heading font-black text-text-muted block mt-1">
+              Remaining
             </span>
           </div>
         </div>
 
-        {/* Progress bar */}
-        <div className="space-y-1.5">
-          <div className="h-3 w-full bg-bg rounded-full border-2 border-border overflow-hidden p-0.5">
+        {/* 3 Secondary Key Metrics */}
+        <div className="grid grid-cols-3 gap-2 pt-2 border-t border-border/40 text-center">
+          <div className="p-2 rounded-xl bg-bg border border-border/60">
+            <span className="text-[10px] font-heading font-extrabold text-text-muted uppercase block">
+              Remaining
+            </span>
+            <span className="text-xs font-heading font-black text-text truncate block mt-0.5">
+              {formatCurrency(moneyLeft)}
+            </span>
+          </div>
+
+          <div className="p-2 rounded-xl bg-bg border border-border/60">
+            <span className="text-[10px] font-heading font-extrabold text-text-muted uppercase block">
+              Spent Month
+            </span>
+            <span className="text-xs font-heading font-black text-expense truncate block mt-0.5">
+              {formatCurrency(spentMonth)}
+            </span>
+          </div>
+
+          <div className="p-2 rounded-xl bg-bg border border-border/60">
+            <span className="text-[10px] font-heading font-extrabold text-text-muted uppercase block">
+              Allowance
+            </span>
+            <div className="flex items-center justify-center gap-1 mt-0.5">
+              <span className="text-xs font-heading font-black text-text truncate">
+                {formatCurrency(income)}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setAllowanceInput(income > 0 ? String(income) : '');
+                  setShowAllowanceModal(true);
+                }}
+                className="text-primary hover:underline"
+                title="Edit allowance"
+              >
+                <Edit2 size={10} />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Pacing Progress Bar */}
+        <div className="space-y-1">
+          <div className="h-2.5 w-full bg-bg rounded-full border border-border overflow-hidden p-0.5">
             <div
               className={`h-full rounded-full transition-all duration-500 ${
                 pctUsed >= 100 ? 'bg-expense' : pctUsed >= 80 ? 'bg-accent' : 'bg-primary'
@@ -242,158 +322,157 @@ export default function HomePage() {
               style={{ width: `${pctUsed}%` }}
             />
           </div>
-          <div className="flex justify-between items-center text-[11px] font-heading font-bold text-text-muted">
-            <span>Spent: {formatCurrency(spentMonth)}</span>
-            <div className="flex items-center gap-1.5">
-              <span>Allowance: {formatCurrency(income)}</span>
-              <button
-                type="button"
-                onClick={() => {
-                  setAllowanceInput(income > 0 ? String(income) : '');
-                  setShowAllowanceModal(true);
-                }}
-                className="text-[10px] text-primary hover:underline font-black flex items-center gap-0.5"
-              >
-                <Edit2 size={10} />
-                <span>Edit</span>
-              </button>
-            </div>
-          </div>
         </div>
       </div>
 
-      {/* Quick Action Pills: Add Spend + Split Bill + Campus Hub */}
+      {/* ONE PERSONALIZED MONEY PULSE INSIGHT */}
+      <MoneyPulseScore />
+
+      {/* QUICK PRIMARY ACTION BAR */}
       <div className="grid grid-cols-3 gap-2">
         <button
           onClick={() => navigate('/add')}
-          className="btn-brutal py-2.5 px-2 text-xs flex items-center justify-center gap-1.5 bg-primary text-white"
+          className="btn-brutal py-3 px-2 text-xs flex items-center justify-center gap-1.5 bg-primary text-white shadow-sticker"
         >
-          <Plus size={15} strokeWidth={3} />
-          <span>Log Spend</span>
+          <Plus size={16} strokeWidth={3} />
+          <span>Smart Add</span>
         </button>
 
         <button
-          onClick={() => setShowSplitter(!showSplitter)}
-          className="btn-brutal-secondary py-2.5 px-2 text-xs flex items-center justify-center gap-1 bg-surface text-text"
+          onClick={() => navigate('/splits')}
+          className="btn-brutal-secondary py-3 px-2 text-xs flex items-center justify-center gap-1.5 bg-surface text-text shadow-sticker"
         >
-          <Users size={14} />
-          <span>Split Bill</span>
+          <Users size={15} />
+          <span>Split Bills</span>
         </button>
 
         <button
           onClick={() => setShowCampusHub(true)}
-          className="btn-brutal py-2.5 px-2 text-xs flex items-center justify-center gap-1 bg-highlight text-text border-2 border-border shadow-sticker"
+          className="btn-brutal py-3 px-2 text-xs flex items-center justify-center gap-1.5 bg-highlight text-text border-2 border-border shadow-sticker"
         >
           <span>🎒 Hub</span>
           <span className="text-[10px] bg-accent text-white px-1.5 py-0.2 rounded-full font-black">4</span>
         </button>
       </div>
 
-      {/* Gang Bill Splitter Quick Tool */}
-      {showSplitter && (
-        <div className="card-brutal p-4 bg-surface border-2 border-border shadow-sticker space-y-3 animate-fade-in">
-          <div className="flex items-center justify-between pb-1 border-b border-border/40">
+      {/* UPCOMING RECURRING BILLS (NEXT 7 DAYS) */}
+      {upcomingSubs.length > 0 && (
+        <div className="card-brutal p-3.5 bg-surface border-2 border-border shadow-sticker space-y-2">
+          <div className="flex items-center justify-between">
             <span className="text-xs font-heading font-black text-text flex items-center gap-1.5">
-              <Users size={14} className="text-accent" />
-              <span>Split Bill with Gang</span>
+              <Clock size={14} className="text-accent" />
+              <span>Upcoming Bills (Next 7 Days)</span>
             </span>
-            <button
-              onClick={() => setShowSplitter(false)}
-              className="text-xs font-bold text-text-muted hover:text-text"
-            >
-              ✕
-            </button>
+            <Link to="/profile" className="text-[11px] font-heading font-bold text-primary hover:underline">
+              Manage
+            </Link>
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="text-[10px] font-bold uppercase text-text-muted block mb-1">
-                Total Bill (₹)
-              </label>
-              <input
-                type="number"
-                placeholder="e.g. 450"
-                value={splitBillAmount}
-                onChange={(e) => setSplitBillAmount(e.target.value)}
-                className="input-brutal text-sm py-1.5 px-2.5"
-              />
-            </div>
-            <div>
-              <label className="text-[10px] font-bold uppercase text-text-muted block mb-1">
-                Friends (incl. you)
-              </label>
-              <input
-                type="number"
-                min="1"
-                placeholder="3"
-                value={splitPeople}
-                onChange={(e) => setSplitPeople(e.target.value)}
-                className="input-brutal text-sm py-1.5 px-2.5"
-              />
-            </div>
-          </div>
-
-          {myShare > 0 && (
-            <div className="p-2.5 rounded-xl bg-highlight border border-border flex items-center justify-between">
-              <div>
-                <span className="text-[10px] font-bold text-text-muted block">Your share to pay:</span>
-                <span className="text-base font-heading font-black text-text">₹{myShare}</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  navigate(`/add?amount=${myShare}&note=Gang%20Split%20(${splitPeople}%20people)`);
-                }}
-                className="btn-brutal text-xs py-1.5 px-3"
+          <div className="space-y-1.5">
+            {upcomingSubs.map((sub) => (
+              <div
+                key={sub.id}
+                className="p-2 rounded-xl bg-bg border border-border flex items-center justify-between text-xs"
               >
-                Log My Share
-              </button>
+                <div className="flex items-center gap-2">
+                  <span className="text-base">💳</span>
+                  <div>
+                    <p className="font-heading font-bold text-text">{sub.name}</p>
+                    <p className="text-[10px] text-text-muted">Due on {formatDate(sub.next_billing_date)}</p>
+                  </div>
+                </div>
+                <span className="font-heading font-black text-expense">
+                  ₹{Math.round(sub.amount)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* SAVINGS PROGRESS & BUDGET HEALTH TILES */}
+      <div className="grid grid-cols-2 gap-2">
+        {/* Savings Goals Mini-Tile */}
+        <Link
+          to="/savings"
+          className="card-brutal p-3 bg-surface border-2 border-border shadow-sticker hover:translate-y-[-2px] transition-transform block space-y-2"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-heading font-black text-text-muted uppercase">
+              Savings Goals
+            </span>
+            <span className="text-base">🎯</span>
+          </div>
+
+          {savingsGoals.length > 0 ? (
+            <div>
+              <div className="text-base font-heading font-black text-primary">
+                {goalSavedPct}%
+                <span className="text-[10px] font-bold text-text-muted ml-1">saved</span>
+              </div>
+              <p className="text-[10px] font-bold text-text truncate mt-0.5">
+                {savingsGoals[0]?.name}
+              </p>
+            </div>
+          ) : (
+            <p className="text-[11px] font-bold text-text-muted">No goal set yet. Tap to create!</p>
+          )}
+        </Link>
+
+        {/* Budget Health Mini-Tile */}
+        <Link
+          to="/hub"
+          className="card-brutal p-3 bg-surface border-2 border-border shadow-sticker hover:translate-y-[-2px] transition-transform block space-y-2"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-heading font-black text-text-muted uppercase">
+              Budget Health
+            </span>
+            <span className="text-base">📊</span>
+          </div>
+
+          {overBudgets.length > 0 ? (
+            <div>
+              <div className="text-sm font-heading font-black text-expense">
+                {overBudgets.length} Exceeded!
+              </div>
+              <p className="text-[10px] font-bold text-text-muted truncate mt-0.5">
+                {overBudgets[0]?.category_name || 'Category'} limit crossed
+              </p>
+            </div>
+          ) : warningBudgets.length > 0 ? (
+            <div>
+              <div className="text-sm font-heading font-black text-accent">
+                {warningBudgets.length} Near Limit
+              </div>
+              <p className="text-[10px] font-bold text-text-muted truncate mt-0.5">
+                80%+ used in {warningBudgets[0]?.category_name}
+              </p>
+            </div>
+          ) : (
+            <div>
+              <div className="text-sm font-heading font-black text-primary">
+                All Healthy 🟢
+              </div>
+              <p className="text-[10px] font-bold text-text-muted truncate mt-0.5">
+                Spending within limits
+              </p>
             </div>
           )}
-        </div>
-      )}
+        </Link>
+      </div>
 
-      {/* Edit Allowance Modal */}
-      {showAllowanceModal && (
-        <div className="card-brutal p-4 bg-highlight text-text border-2 border-border shadow-sticker space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-xs font-heading font-black flex items-center gap-1.5">
-              <Wallet size={14} />
-              <span>Update Pocket Money / Allowance</span>
-            </h3>
-            <button
-              onClick={() => setShowAllowanceModal(false)}
-              className="text-xs font-bold opacity-60 hover:opacity-100"
-            >
-              ✕
-            </button>
-          </div>
+      {/* Mascot Card */}
+      <MoneyMascot
+        mood={summary?.mascot_mood || 'calm'}
+        line={summary?.mascot_line}
+      />
 
-          <div className="flex gap-2">
-            <input
-              type="number"
-              placeholder="e.g. 3000"
-              value={allowanceInput}
-              onChange={(e) => setAllowanceInput(e.target.value)}
-              className="input-brutal text-sm py-2 px-3 flex-1 bg-surface"
-            />
-            <button
-              type="button"
-              disabled={savingAllowance}
-              onClick={handleSaveAllowance}
-              className="btn-brutal py-2 px-4 text-xs shrink-0"
-            >
-              {savingAllowance ? 'Saving...' : 'Update'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* User's Own Quick Add Chips */}
+      {/* Frequent Spends (1-Tap Add) */}
       {frequentChips.length > 0 && (
         <div className="space-y-2">
           <span className="text-[11px] font-heading font-extrabold uppercase text-text-muted block tracking-wider">
-            Your Frequent Spends (1-Tap Add)
+            Frequent Spends (1-Tap Add)
           </span>
           <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
             {frequentChips.map((chip, idx) => (
@@ -418,15 +497,95 @@ export default function HomePage() {
         </div>
       )}
 
+      {/* RECENT TRANSACTIONS (LATEST 3) */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xs font-heading font-extrabold uppercase tracking-wider text-text-muted">
+            Recent Transactions
+          </h2>
+          {recentExpenses.length > 0 && (
+            <Link
+              to="/transactions"
+              className="text-xs font-heading font-bold text-primary flex items-center gap-0.5 hover:underline"
+            >
+              <span>See All</span>
+              <ChevronRight size={14} />
+            </Link>
+          )}
+        </div>
+
+        {recentExpenses.length === 0 ? (
+          <div className="card-brutal p-7 text-center bg-surface space-y-3">
+            <div className="w-14 h-14 rounded-2xl border-2 border-border shadow-sticker bg-highlight mx-auto flex items-center justify-center text-2xl">
+              ✨
+            </div>
+            <h3 className="text-sm font-heading font-black text-text">
+              Clean Canvas!
+            </h3>
+            <p className="text-xs text-text-muted font-medium max-w-xs mx-auto">
+              Add your first spend and let's start keeping your pocket money safe.
+            </p>
+            <button
+              onClick={() => navigate('/add')}
+              className="btn-brutal text-xs py-2 px-4 inline-flex items-center gap-1.5"
+            >
+              <Plus size={14} strokeWidth={3} />
+              <span>Log First Spend</span>
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {recentExpenses.slice(0, 3).map((exp) => {
+              const IconComp = getIcon(exp.category_icon || 'Circle');
+              return (
+                <div
+                  key={exp.id}
+                  onClick={() => navigate('/transactions')}
+                  className="card-brutal p-3 flex items-center justify-between cursor-pointer hover:translate-x-1 transition-transform bg-surface"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div
+                      className="w-9 h-9 rounded-xl border-2 border-border shadow-sticker-hover flex items-center justify-center text-white shrink-0"
+                      style={{ backgroundColor: exp.category_color || '#FF5C8A' }}
+                    >
+                      <IconComp size={16} />
+                    </div>
+                    <div className="truncate">
+                      <p className="text-xs font-heading font-bold text-text truncate">
+                        {exp.merchant || exp.category_name || exp.note || 'Spend'}
+                      </p>
+                      <p className="text-[10px] text-text-muted font-medium flex items-center gap-1.5">
+                        <span>{formatDate(exp.date)}</span>
+                        <span>•</span>
+                        <span className="uppercase">{exp.payment_method}</span>
+                        {exp.tag && (
+                          <span className="font-extrabold uppercase text-primary">
+                            • {exp.tag}
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+
+                  <span className="text-xs font-heading font-black text-expense shrink-0">
+                    -{formatCurrency(exp.amount)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       {/* Weekly Check-in Mood Picker */}
-      <div className="card-brutal p-3.5 bg-surface space-y-2">
+      <div className="card-brutal p-3 bg-surface space-y-2">
         <div className="flex items-center justify-between">
           <span className="text-xs font-heading font-bold text-text flex items-center gap-1.5">
             <Zap size={14} className="text-accent" />
-            <span>How did this week feel money-wise?</span>
+            <span>Weekly check-in: How did your week feel?</span>
           </span>
           {latestCheckin?.mood && (
-            <span className="text-[10px] font-bold text-income bg-income/10 px-2 py-0.5 rounded-full border border-income/30">
+            <span className="text-[9px] font-bold text-income bg-income/10 px-2 py-0.5 rounded-full border border-income/30">
               Recorded
             </span>
           )}
@@ -448,101 +607,54 @@ export default function HomePage() {
                   : 'border-border/50 bg-bg text-text-muted hover:border-border'
               }`}
             >
-              <div className="text-xl mb-0.5">{m.emoji}</div>
+              <div className="text-lg mb-0.5">{m.emoji}</div>
               <span className="text-[10px] block font-heading">{m.label}</span>
             </button>
           ))}
         </div>
       </div>
 
-      {/* Money Pulse Daily Timeline */}
-      <MoneyPulseChart
-        transactions={recentExpenses}
-        safePerDay={safePerDay}
-        monthlyIncome={income}
-        savingsGoal={user?.savings_goal || 0}
-      />
-
-      {/* Recent Spends Section */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xs font-heading font-extrabold uppercase tracking-wider text-text-muted">
-            Recent Activity
-          </h2>
-          {recentExpenses.length > 0 && (
-            <Link
-              to="/transactions"
-              className="text-xs font-heading font-bold text-primary flex items-center gap-0.5 hover:underline"
-            >
-              <span>See All</span>
-              <ChevronRight size={14} />
-            </Link>
-          )}
-        </div>
-
-        {recentExpenses.length === 0 ? (
-          /* Friendly Gen-Z Empty State */
-          <div className="card-brutal p-8 text-center bg-surface space-y-3">
-            <div className="w-16 h-16 rounded-2xl border-2 border-border shadow-sticker bg-highlight mx-auto flex items-center justify-center text-3xl">
-              ✨
-            </div>
-            <h3 className="text-base font-heading font-black text-text">
-              Nothing yet!
+      {/* Edit Allowance Modal */}
+      {showAllowanceModal && (
+        <div className="card-brutal p-4 bg-highlight text-text border-2 border-border shadow-sticker space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-heading font-black flex items-center gap-1.5">
+              <Wallet size={14} />
+              <span>Update Pocket Money / Allowance</span>
             </h3>
-            <p className="text-xs text-text-muted font-medium max-w-xs mx-auto">
-              Add your first spend and let's start tracking your pocket money habits.
-            </p>
             <button
-              onClick={() => navigate('/add')}
-              className="btn-brutal text-sm py-2 px-5 inline-flex items-center gap-2"
+              onClick={() => setShowAllowanceModal(false)}
+              className="text-xs font-bold opacity-60 hover:opacity-100"
             >
-              <Plus size={16} strokeWidth={3} />
-              <span>Log First Spend</span>
+              ✕
             </button>
           </div>
-        ) : (
-          <div className="space-y-2.5">
-            {recentExpenses.map((exp) => {
-              const IconComp = getIcon(exp.category_icon || 'Circle');
-              return (
-                <div
-                  key={exp.id}
-                  onClick={() => navigate('/transactions')}
-                  className="card-brutal p-3 flex items-center justify-between cursor-pointer hover:translate-x-1 transition-transform bg-surface"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div
-                      className="w-10 h-10 rounded-xl border-2 border-border shadow-sticker-hover flex items-center justify-center text-white shrink-0"
-                      style={{ backgroundColor: exp.category_color || '#FF5C8A' }}
-                    >
-                      <IconComp size={18} />
-                    </div>
-                    <div className="truncate">
-                      <p className="text-sm font-heading font-bold text-text truncate">
-                        {exp.merchant || exp.category_name || exp.note || 'Spend'}
-                      </p>
-                      <p className="text-[11px] text-text-muted font-medium flex items-center gap-1.5">
-                        <span>{formatDate(exp.date)}</span>
-                        <span>•</span>
-                        <span className="uppercase">{exp.payment_method}</span>
-                        {exp.tag && (
-                          <span className="font-extrabold uppercase text-primary">
-                            • {exp.tag}
-                          </span>
-                        )}
-                      </p>
-                    </div>
-                  </div>
 
-                  <span className="text-sm font-heading font-black text-expense shrink-0">
-                    -{formatCurrency(exp.amount)}
-                  </span>
-                </div>
-              );
-            })}
+          <div className="flex gap-2">
+            <input
+              type="number"
+              placeholder="e.g. 3000"
+              value={allowanceInput}
+              onChange={(e) => setAllowanceInput(e.target.value)}
+              className="input-brutal text-sm py-2 px-3 flex-1 bg-surface font-bold"
+            />
+            <button
+              type="button"
+              disabled={savingAllowance}
+              onClick={handleSaveAllowance}
+              className="btn-brutal py-2 px-4 text-xs shrink-0"
+            >
+              {savingAllowance ? 'Saving...' : 'Update'}
+            </button>
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {/* Purchase Simulator Modal */}
+      <PurchaseSimulatorModal
+        isOpen={showSimulator}
+        onClose={() => setShowSimulator(false)}
+      />
 
       {/* Campus & Student Hub (4-in-1 Tools Modal) */}
       <CampusHubModal

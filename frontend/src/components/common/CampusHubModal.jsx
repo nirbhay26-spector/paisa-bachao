@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import api from '../../services/api';
 import { triggerConfetti } from '../../utils/confetti';
 import { formatCurrency } from '../../utils/format';
+import { parseNaturalLanguageTransaction } from '../../utils/nlpParser';
+import StatementImportModal from './StatementImportModal';
 import {
   MessageSquare,
   Coffee,
@@ -14,13 +16,15 @@ import {
   Share2,
   Trash2,
   Sparkles,
-  Zap
+  Zap,
+  FileSpreadsheet
 } from 'lucide-react';
 
 export default function CampusHubModal({ isOpen, onClose, onRefresh }) {
   if (!isOpen) return null;
 
-  const [activeTab, setActiveTab] = useState('bot'); // 'bot' | 'mess' | 'split' | 'challenge'
+  const [activeTab, setActiveTab] = useState('bot'); // 'bot' | 'mess' | 'split' | 'challenge' | 'import'
+  const [showImportModal, setShowImportModal] = useState(false);
 
   // --- 1. Quick Chat Bot State ---
   const [botInput, setBotInput] = useState('');
@@ -87,45 +91,27 @@ export default function CampusHubModal({ isOpen, onClose, onRefresh }) {
     setIsBotLogging(true);
 
     try {
-      // Natural language regex parsing
-      const amtMatch = text.match(/(\d+)/);
-      const amount = amtMatch ? parseFloat(amtMatch[1]) : 0;
+      const candidate = parseNaturalLanguageTransaction(text);
 
-      if (!amount || amount <= 0) {
+      if (!candidate || !candidate.amount || candidate.amount <= 0) {
         setBotMessages([
           ...newMsgs,
           {
             sender: 'bot',
-            text: "Couldn't catch an amount! Try typing something with a number like: \"120 chai at tapri\""
+            text: "Couldn't catch an amount! Try typing something like: \"120 chai at tapri\" or \"450 zomato upi\""
           }
         ]);
         return;
       }
 
-      const lower = text.toLowerCase();
-      let merchant = 'Quick Spend';
-      let tag = null;
-
-      if (lower.includes('need')) tag = 'need';
-      else if (lower.includes('want') || lower.includes('treat')) tag = 'want';
-
-      if (lower.includes('zomato')) merchant = 'Zomato';
-      else if (lower.includes('swiggy')) merchant = 'Swiggy';
-      else if (lower.includes('chai') || lower.includes('tapri') || lower.includes('tea')) merchant = 'Chai Tapri';
-      else if (lower.includes('canteen')) merchant = 'Campus Canteen';
-      else if (lower.includes('metro') || lower.includes('bus')) merchant = 'Metro / Travel';
-      else if (lower.includes('uber') || lower.includes('ola') || lower.includes('rapido')) merchant = 'Cab / Auto';
-      else {
-        // Remove number from text for note
-        merchant = text.replace(/\d+/g, '').trim() || 'Quick Spend';
-      }
-
       await api.post('/expenses', {
-        amount,
-        merchant,
+        amount: candidate.amount,
+        merchant: candidate.merchant,
+        category_id: candidate.category_id,
         note: `Logged via Chat: "${text}"`,
-        payment_method: 'upi',
-        tag
+        payment_method: candidate.payment_method || 'upi',
+        tag: candidate.tag || null,
+        date: candidate.date
       });
 
       triggerConfetti();
@@ -135,7 +121,7 @@ export default function CampusHubModal({ isOpen, onClose, onRefresh }) {
         ...newMsgs,
         {
           sender: 'bot',
-          text: `Boom! Logged ₹${amount} for "${merchant}" directly into your SQLite database. Reflection question generated! 🚀`
+          text: `Boom! Logged ₹${candidate.amount} for "${candidate.merchant}" (${candidate.category_id}) directly into your tracker! 🚀`
         }
       ]);
     } catch (err) {
@@ -227,12 +213,13 @@ export default function CampusHubModal({ isOpen, onClose, onRefresh }) {
         </div>
 
         {/* Tab Selector */}
-        <div className="grid grid-cols-4 p-2 bg-bg border-b-2 border-border gap-1 text-center">
+        <div className="grid grid-cols-5 p-2 bg-bg border-b-2 border-border gap-1 text-center">
           {[
             { id: 'bot', label: 'Chat Bot', icon: MessageSquare },
             { id: 'mess', label: 'Mess Card', icon: Coffee },
             { id: 'split', label: 'Split Ledger', icon: Users },
-            { id: 'challenge', label: '30D Save', icon: Trophy }
+            { id: 'challenge', label: '30D Save', icon: Trophy },
+            { id: 'import', label: 'CSV Import', icon: FileSpreadsheet }
           ].map((t) => {
             const Icon = t.icon;
             return (
@@ -526,8 +513,41 @@ export default function CampusHubModal({ isOpen, onClose, onRefresh }) {
               )}
             </div>
           )}
+
+          {/* 5. Statement Import Tab */}
+          {activeTab === 'import' && (
+            <div className="space-y-4 text-center py-4">
+              <div className="w-16 h-16 rounded-2xl border-2 border-border bg-highlight mx-auto flex items-center justify-center text-3xl shadow-sticker">
+                📄
+              </div>
+              <div>
+                <h3 className="text-sm font-heading font-black text-text">Import Bank or UPI Statements</h3>
+                <p className="text-xs text-text-muted max-w-xs mx-auto mt-1">
+                  Upload CSV files from GPay, Paytm, or bank statements with automatic column mapping and duplicate check.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowImportModal(true)}
+                className="btn-brutal text-xs py-3 px-6 shadow-sticker"
+              >
+                Launch Statement Importer 🚀
+              </button>
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Statement Import Modal */}
+      <StatementImportModal
+        isOpen={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        onImportComplete={() => {
+          setShowImportModal(false);
+          if (onRefresh) onRefresh();
+        }}
+      />
     </div>
   );
 }

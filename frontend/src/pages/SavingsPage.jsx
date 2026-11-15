@@ -178,9 +178,25 @@ export default function SavingsPage() {
 
                 {/* Suggested weekly savings */}
                 {g.weekly_suggestion > 0 && !isCompleted && (
-                  <div className="flex items-center gap-1.5 text-xs font-bold text-text bg-bg border-2 border-border p-2 rounded-xl">
-                    <Sparkles size={14} className="text-primary" />
-                    <span>Save ₹{g.weekly_suggestion.toLocaleString('en-IN')}/week to hit your target date</span>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-text bg-bg border-2 border-border p-2 rounded-xl">
+                      <Sparkles size={14} className="text-primary" />
+                      <span>Save ₹{g.weekly_suggestion.toLocaleString('en-IN')}/week to hit your target date</span>
+                    </div>
+
+                    {g.projected_days_left && (
+                      <div className={`p-2 rounded-xl border text-[11px] font-bold flex items-center justify-between ${
+                        g.pace_status === 'behind'
+                          ? 'bg-accent/10 text-accent border-accent/30'
+                          : 'bg-primary/10 text-primary border-primary/30'
+                      }`}>
+                        <span>
+                          {g.pace_status === 'behind'
+                            ? `⚠️ At your current savings pace, you'll reach this in ~${g.projected_days_left} days.`
+                            : `🟢 Great velocity! Projected to hit goal in ~${g.projected_days_left} days.`}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 )}
 

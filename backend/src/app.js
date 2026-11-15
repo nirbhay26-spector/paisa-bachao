@@ -73,10 +73,8 @@ async function startServer() {
   app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
   // Global error handler
-  app.use((err, req, res, next) => {
-    console.error('Unhandled server error:', err);
-    res.status(500).json({ error: 'Internal server error' });
-  });
+  const { errorHandler } = require('./middleware/errorHandler');
+  app.use(errorHandler);
 
   // NOTE: NO DEMO SEEDING. Completely empty database on new setup.
 

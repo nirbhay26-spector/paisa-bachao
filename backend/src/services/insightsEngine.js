@@ -257,9 +257,167 @@ function runInsightsEngine(db, userId, lang = 'en') {
   };
 }
 
+function computeMoneyPulseScore(db, userId) {
+  const now = new Date();
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+  if (!user) return { score: 75, status: 'Healthy & Steady', breakdown: [] };
+
+  const income = user.monthly_income || 0;
+  const daysUntilNext = calculateDaysUntilNextIncome(user.income_frequency, user.income_arrival_date, now);
+  const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+
+  // Transactions this month
+  const monthTxns = db.prepare(`
+    SELECT * FROM transactions 
+    WHERE user_id = ? AND is_deleted = 0 AND date >= ?
+  `).all(userId, currentMonthStart);
+
+  const monthSpend = monthTxns.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
+  const moneyLeft = income - monthSpend;
+  const safePerDay = computeSafeToSpend(income, monthSpend, daysUntilNext);
+
+  // Subscriptions
+  const subs = db.prepare(`SELECT * FROM subscriptions WHERE user_id = ? AND status = 'active'`).all(userId);
+  const monthlyRecurring = subs.reduce((sum, s) => {
+    let amt = s.amount;
+    if (s.billing_cycle === 'yearly') amt = amt / 12;
+    if (s.billing_cycle === 'quarterly') amt = amt / 3;
+    if (s.billing_cycle === 'weekly') amt = amt * 4.33;
+    return sum + amt;
+  }, 0);
+
+  // 1. Savings Rate (up to 25 pts)
+  let savingsScore = 20;
+  let savingsRate = 0;
+  if (income > 0) {
+    savingsRate = Math.max(0, Math.round((moneyLeft / income) * 100));
+    if (savingsRate >= 20) savingsScore = 25;
+    else if (savingsRate >= 10) savingsScore = 18;
+    else if (savingsRate >= 1) savingsScore = 10;
+    else savingsScore = 2;
+  }
+
+  // 2. Safe-to-Spend Discipline / Budget Adherence (up to 25 pts)
+  let disciplineScore = 25;
+  const daysMap = {};
+  for (const t of monthTxns) {
+    const dStr = (t.date || '').slice(0, 10);
+    daysMap[dStr] = (daysMap[dStr] || 0) + (parseFloat(t.amount) || 0);
+  }
+  const loggedDaysCount = Object.keys(daysMap).length;
+  if (loggedDaysCount > 0 && safePerDay > 0) {
+    const underLimitDays = Object.values(daysMap).filter(val => val <= safePerDay).length;
+    const underPct = (underLimitDays / loggedDaysCount) * 100;
+    if (underPct >= 80) disciplineScore = 25;
+    else if (underPct >= 60) disciplineScore = 18;
+    else if (underPct >= 40) disciplineScore = 12;
+    else disciplineScore = 5;
+  }
+
+  // 3. Emergency Buffer / Cash Runway (up to 20 pts)
+  let bufferScore = 20;
+  if (income > 0) {
+    if (moneyLeft <= 0) bufferScore = 0;
+    else if (safePerDay * daysUntilNext <= moneyLeft) bufferScore = 20;
+    else bufferScore = Math.max(2, Math.min(20, Math.round((moneyLeft / income) * 20)));
+  }
+
+  // 4. Overspending & Impulse Frequency (up to 15 pts)
+  let impulseScore = 15;
+  const wantSpend = monthTxns.filter(t => t.tag === 'want').reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
+  if (monthSpend > 0) {
+    const wantRatio = (wantSpend / monthSpend) * 100;
+    if (wantRatio <= 30) impulseScore = 15;
+    else if (wantRatio <= 45) impulseScore = 10;
+    else if (wantRatio <= 60) impulseScore = 5;
+    else impulseScore = 2;
+  }
+
+  // 5. Recurring Commitment Ratio (up to 15 pts)
+  let recurringScore = 15;
+  if (income > 0 && monthlyRecurring > 0) {
+    const recurRatio = (monthlyRecurring / income) * 100;
+    if (recurRatio <= 15) recurringScore = 15;
+    else if (recurRatio <= 25) recurringScore = 10;
+    else if (recurRatio <= 40) recurringScore = 5;
+    else recurringScore = 2;
+  }
+
+  const totalScore = Math.min(100, Math.max(0, savingsScore + disciplineScore + bufferScore + impulseScore + recurringScore));
+
+  let status = 'Healthy & Steady';
+  let badgeColor = 'bg-primary';
+  let oneLiner = `You are pacing steadily with ₹${safePerDay}/day safe buffer.`;
+
+  if (totalScore >= 85) {
+    status = 'Rockstar Pacing';
+    badgeColor = 'bg-primary';
+    oneLiner = 'Outstanding money discipline! You are pacing well under your daily limit.';
+  } else if (totalScore >= 70) {
+    status = 'Healthy & Steady';
+    badgeColor = 'bg-primary';
+    oneLiner = `Good shape! Keep daily spend around ₹${safePerDay} to protect your goals.`;
+  } else if (totalScore >= 50) {
+    status = 'Watchful Pace';
+    badgeColor = 'bg-accent';
+    oneLiner = 'Your spending is slightly ahead of pace. Try easing up on non-essential wants!';
+  } else {
+    status = 'Caution Zone';
+    badgeColor = 'bg-expense';
+    oneLiner = 'Allowance is running low. Switch to zero-spend days until next reload!';
+  }
+
+  const breakdown = [
+    {
+      category: 'Savings Rate',
+      score: savingsScore,
+      max: 25,
+      description: income > 0 ? `${savingsRate}% of pocket money preserved` : 'Fresh account baseline'
+    },
+    {
+      category: 'Daily Discipline',
+      score: disciplineScore,
+      max: 25,
+      description: `Daily limit adherence vs ₹${safePerDay}/day target`
+    },
+    {
+      category: 'Runway Buffer',
+      score: bufferScore,
+      max: 20,
+      description: `${daysUntilNext} days runway remaining`
+    },
+    {
+      category: 'Impulse Control',
+      score: impulseScore,
+      max: 15,
+      description: monthSpend > 0 ? `Wants make up ${Math.round((wantSpend / monthSpend) * 100)}% of spends` : 'No impulse treats logged yet'
+    },
+    {
+      category: 'Fixed Commitments',
+      score: recurringScore,
+      max: 15,
+      description: `₹${Math.round(monthlyRecurring)}/mo recurring subscriptions`
+    }
+  ];
+
+  return {
+    score: totalScore,
+    status,
+    badgeColor,
+    oneLiner,
+    breakdown,
+    safePerDay,
+    moneyLeft,
+    daysUntilNext,
+    monthSpend,
+    monthlyIncome: income
+  };
+}
+
 module.exports = {
   calculateDaysUntilNextIncome,
   computeSafeToSpend,
-  runInsightsEngine
+  runInsightsEngine,
+  computeMoneyPulseScore
 };
 
