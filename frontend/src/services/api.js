@@ -3,10 +3,15 @@ import axios from 'axios';
 const getBaseURL = () => {
   if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
   if (typeof window !== 'undefined' && window.location) {
-    const host = window.location.hostname || 'localhost';
-    return `http://${host}:3001/api`;
+    // In standalone local dev on port 5173, hit backend directly on port 3001
+    if (window.location.port === '5173') {
+      const host = window.location.hostname || 'localhost';
+      return `http://${host}:3001/api`;
+    }
+    // On Vercel, vercel dev, or same-origin deployment, use relative /api
+    return '/api';
   }
-  return 'http://localhost:3001/api';
+  return '/api';
 };
 
 const api = axios.create({

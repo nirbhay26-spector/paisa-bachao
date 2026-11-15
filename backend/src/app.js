@@ -12,7 +12,7 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 async function startServer() {
-  const dbPath = path.join(__dirname, '../data/paisa-bachao.db');
+  const dbPath = process.env.DB_PATH || path.join(__dirname, '../data/paisa-bachao.db');
   const db = await initDb(dbPath);
 
   // Apply migrations
@@ -41,7 +41,7 @@ async function startServer() {
   const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100, message: { error: 'Too many attempts, please try again later' } });
 
   // Static files for uploads
-  const uploadsDir = path.join(__dirname, '../uploads');
+  const uploadsDir = process.env.UPLOADS_DIR || path.join(__dirname, '../uploads');
   fs.mkdirSync(uploadsDir, { recursive: true });
   app.use('/uploads', express.static(uploadsDir));
 
@@ -89,3 +89,5 @@ startServer().catch((err) => {
   console.error('Failed to start server:', err);
   process.exit(1);
 });
+
+module.exports = app;

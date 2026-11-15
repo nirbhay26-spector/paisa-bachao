@@ -195,15 +195,18 @@ function createAuthRouter(db) {
         VALUES (?, ?, ?, ?, 0, ?)
       `).run(crypto.randomUUID(), user.id, token, expiresAt, now);
 
+      const origin = process.env.APP_URL || req.headers.origin || 'http://localhost:5173';
+      const resetUrl = `${origin}/reset-password?token=${token}`;
+
       console.log(`\n==================================================`);
       console.log(`🔑 [DEV] Password Reset Link for ${cleanEmail}:`);
-      console.log(`👉 http://localhost:5173/reset-password?token=${token}`);
+      console.log(`👉 ${resetUrl}`);
       console.log(`==================================================\n`);
 
       res.json({
         message: 'Password reset link sent! Check your developer console for the reset link.',
         dev_token: token,
-        dev_link: `http://localhost:5173/reset-password?token=${token}`
+        dev_link: resetUrl
       });
     } catch (err) {
       console.error('Forgot password error:', err);
